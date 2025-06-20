@@ -1,43 +1,42 @@
 import streamlit as st
-from langchain.memory import ConversationBufferMemory
-from langchain.chains import ConversationChain
-from langchain_community.llms import Ollama
+from langchain_ollama import OllamaLLM
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from langchain_core.chat_history import InMemoryChatMessageHistory
 
-# Init chat memory + LangChain only once
 @st.cache_resource
-def get_chat_chain():
-    llm = Ollama(model="deepseek-r1")  # or "deepseek-r1", "llama3", etc.
-    memory = ConversationBufferMemory()
-    return ConversationChain(llm=llm, memory=memory)
+def load_model():
+    return OllamaLLM(model="deepseek-r1")
 
-# Streamlit page function
 def app():
-    st.title("🤖 LLM Chatbot (LangChain + Ollama)")
-
-    # Store chat history in session state
+    # Initialize chat history
     if "chat_history" not in st.session_state:
-        st.session_state.chat_history = []
+        st.session_state.chat_history = [SystemMessage(content="Reply in English only.")]
 
-    # Input prompt
-    user_input = st.chat_input("Say something...")
+    # Rebuild LangChain memory
+    memory = InMemoryChatMessageHistory()
+    for msg in st.session_state.chat_history:
+        memory.add_message(msg)
 
-    # Initialize chain
-    chain = get_chat_chain()
+    # Title
+    st.title("🤖 Simple LLM Chatbot")
 
-    # Handle user input
+    # Chat input
+    user_input = st.chat_input("Say something...", key="unique_input_key")
+
+    # Handle input
     if user_input:
-        # Get response
-        response = chain.run(user_input)
+        llm = load_model()
+        memory.add_user_message(user_input)
+        st.session_state.chat_history.append(HumanMessage(content=user_input))
 
-        # Save to history
-        st.session_state.chat_history.append(("user", user_input))
-        st.session_state.chat_history.append(("ai", response))
+        response = llm.invoke(memory.messages)
 
-    # Display chat messages
-    for sender, msg in st.session_state.chat_history:
-        if sender == "user":
-            with st.chat_message("user"):
-                st.write(msg)
-        else:
-            with st.chat_message("ai"):
-                st.write(msg)
+        memory.add_ai_message(response)
+        st.session_state.chat_history.append(AIMessage(content=response))
+
+    # Show messages
+    for msg in memory.messages:
+        if isinstance(msg, SystemMessage):
+            continue  # Don't display system prompt
+        with st.chat_message("user" if isinstance(msg, HumanMessage) else "ai"):
+            st.write(msg.content)
